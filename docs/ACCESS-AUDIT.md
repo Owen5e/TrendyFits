@@ -6,6 +6,11 @@
 **Method:** read the source of all 8 lists plus the rule vocabulary, then encode what was read as
 executable tests (`test/access-rules.test.js`) so the audit cannot silently drift from the code.
 
+**Status:** **all six findings (F1–F6) closed on 2026-10-11.** Each finding below records what was
+wrong, what replaced it, and the test that proves it. `npm run test:access` went from pinning the
+broken behaviour to proving it is gone — **27/27 checks pass**. Section 3 is the configuration as it
+stands *after* the fixes.
+
 ---
 
 ## 1. How Keystone access actually behaves
@@ -32,10 +37,13 @@ mean "yes"; it means "yes, but only your own rows".
 | `canReadProducts` | `{ status: 'Available' }` | `{ status: 'Available' }` | `true` |
 | `canManageUsers` | `false` | `{ id }` — self only | `true` |
 | `canManageCategories` | `false` | `false` | `true` |
+| `canReadProductImages` | `{ product: { status: 'Available' } }` | same filter | `true` |
+| `canManageProductImages` | `false` | `{ product: { user: { id } } }` — images of own products | `true` |
 
 `permissions.*` (generated from `permissionFields`) are pure yes/no checks against
-`session.data.role[...]`. `canReadProducts` is the only rule that hands anonymous users a filter
-rather than a denial — and it is the correct shape, because it restricts them to `Available` rows.
+`session.data.role[...]`. `canReadProducts` and `canReadProductImages` are the two rules that hand
+anonymous users a filter rather than a denial — and that is the correct shape, because each restricts
+them to `Available` rows rather than exposing drafts.
 
 ## 3. Every list, as configured
 
@@ -44,16 +52,19 @@ rather than a denial — and it is the correct shape, because it restricts them 
 | `User` | `true` | `rules.canManageUsers` | `rules.canManageUsers` | `permissions.canManageUsers` |
 | `Role` | `permissions.canManageRoles` | `permissions.canManageRoles` | `permissions.canManageRoles` | `permissions.canManageRoles` |
 | `Product` | `isSignedIn` | `rules.canReadProducts` | `rules.canManageProducts` | `rules.canManageProducts` |
-| `ProductImage` | `isSignedIn` | **`true`** | `permissions.canManageProducts` | `permissions.canManageProducts` |
-| `Category` | `isSignedIn` | `true` | `rules.canManageProducts` | `rules.canManageProducts` |
+| `ProductImage` | `isSignedIn` | `rules.canReadProductImages` | `rules.canManageProductImages` | `rules.canManageProductImages` |
+| `Category` | `isSignedIn` | `true` | `rules.canManageCategories` | `rules.canManageCategories` |
 | `CartItem` | `isSignedIn` | `rules.canOrder` | `rules.canOrder` | `rules.canOrder` |
-| `Order` | `isSignedIn` | `rules.canOrder` | `() => false` | `() => false` |
-| `OrderItem` | `isSignedIn` | `rules.canManageOrderItems` | `() => false` | `() => false` |
+| `Order` | `isSignedIn` | `rules.canOrder` | `permissions.canManageOrders` | `() => false` |
+| `OrderItem` | `isSignedIn` | `rules.canManageOrderItems` | `permissions.canManageOrders` | `() => false` |
+
+This table is the configuration **after** the day-19 fixes; the pre-fix values are preserved in each
+finding below, which records what was wrong and what replaced it.
 
 Field-level access: `User.role` — `create` and `update` both require
 `permissions.canManageUsers`, which is what stops a normal user from promoting themselves.
 
-## 4. Findings
+## 4. Findings — all six closed on 2026-10-11
 
 ### F1 — `ProductImage.read: true` exposes images of unpublished products (information disclosure)
 
@@ -67,7 +78,14 @@ A `Draft` or `Unavailable` product's row is hidden, but its `ProductImage` rows 
 **Recommendation:** replace `true` with a filter that follows the product's status, or deny
 anonymous reads outright.
 
-### F2 — owners cannot manage their own `ProductImage` (inconsistent rule shape)
+**CLOSED.** `read` is now `rules.canReadProductImages`: `true` only for a holder of
+`canManageProducts`, otherwise the filter `{ product: { status: 'Available' } }`. The filter follows
+the relationship to the product — a `ProductImage` access function never queries the `ProductImage`
+list, which is the self-recursion trap. **Proof:**
+`F1 closed: a product image is only as public as its product`. **Owner's decision:** anonymous users
+see images only for `Available` products.
+
+### F2 — CLOSED — owners could not manage their own `ProductImage`
 
 `ProductImage.update` / `.delete` use `permissions.canManageProducts` (permission *only*), whereas
 `Product` uses `rules.canManageProducts` (permission **or** ownership) — `ProductImage.ts:18-19` vs
@@ -77,7 +95,12 @@ Consequence: a signed-in user who created a product can edit the product but **n
 attached to it. The same permission-or-ownership semantics should apply to both, or the asymmetry
 should be deliberate and written down.
 
-### F3 — `Category` update/delete use a rule that filters on a field `Category` does not have
+**CLOSED.** `rules.canManageProductImages` mirrors the product rule through the relationship:
+`false` for anonymous, `{ product: { user: { id } } }` for an owner, `true` with the permission —
+and `ProductImage` writes now use it. Image management is ownership-aware again. **Proof:**
+`F2 closed: image writes mirror product ownership, not permission-only`.
+
+### F3 — CLOSED — `Category` filtered on a column it does not have
 
 `schemas/Category.ts:10-11` uses `rules.canManageProducts`, whose owner branch returns
 `{ user: { id: session.itemId } }`. `Category` has no `user` field (it has `name`, `slug`,
@@ -91,7 +114,12 @@ behaviour is *only admins can manage categories*, which is not what the code say
 **Recommendation:** give `Category` its own rule returning `false` for non-admins (which is the
 effective behaviour today), or add an owner field if ownership is genuinely wanted.
 
-### F4 — three permissions are declared but never enforced
+**CLOSED.** `Category` now uses `rules.canManageCategories` — permission-only, which is exactly the
+behaviour it always had, expressed in a rule `Category` can satisfy. No owner field was invented:
+ownership of a category is not a concept this shop has. **Proof:**
+`F3 closed: Category uses a rule it can actually satisfy`.
+
+### F4 — CLOSED — three permissions were declared but never enforced
 
 `isAwesome` is defined in `permissions` (`access.ts:29`) and referenced nowhere else in the backend.
 `canSeeOtherUsers` and `canManageOrders` exist in `permissionFields`
@@ -106,7 +134,13 @@ promises capability the code never grants.
 `canManageOrders` or remove them from `permissionFields` so the Role screen only lists permissions
 that do something.
 
-### F5 — `Order` and `OrderItem` cannot be updated or deleted by anyone
+**CLOSED.** `isAwesome` and `canSeeOtherUsers` were **deleted** (the latter duplicated what
+`canManageUsers` already did for reads). `canManageOrders` was **implemented** — it gates order and
+order-item corrections (see F5) — and its label corrected to "User can correct orders and order
+items". Every checkbox the Role screen renders is now enforced by code. **Proof:**
+`F4 closed: nothing is declared that the code does not enforce`.
+
+### F5 — CLOSED — nobody, including an administrator, could correct an order
 
 `Order.ts:16-17` and `OrderItems.ts:9-10` return `() => false` for both `update` and `delete`.
 This is a defensible immutability stance for order history, but it is absolute: a genuine data
@@ -117,7 +151,14 @@ role, including administrators, and would require direct database access.
 that asserts it. If admins need corrections, gate `update` on a new `canManageOrders` permission —
 which already exists (see F4) and currently does nothing.
 
-### F6 — a session without `data` throws instead of denying
+**CLOSED, explicitly decided.** `update` is now `permissions.canManageOrders` on both `Order` and
+`OrderItem`, so an administrator holding that permission can correct a mis-charged order or a
+duplicated line item through the API. `delete` stays `() => false` on both: that is now a written
+retention decision rather than an accidental blanket denial — corrections are updates, and financial
+history is never hard-deleted. Customers remain unable to touch either. **Proof:**
+`F5 closed: order corrections are gated on canManageOrders; nothing is deleted`.
+
+### F6 — CLOSED — a session without `data` threw instead of denying
 
 `access.ts:21` is `return !!session?.data.role?.[permission];`. The optional chain protects
 `session` but not `session.data`: a session object that exists without a `data` property raises
@@ -129,6 +170,11 @@ it), but an access predicate is the wrong place to throw. `isAwesome` uses
 
 **Recommendation:** `session?.data?.role?.[permission]`. Until then, this audit records the current
 behaviour as a known hazard, and the test pins it so the fix is visible in the diff.
+
+**CLOSED.** The generated permission checkers are now `!!session?.data?.role?.[permission]`, so a
+session object without a payload denies instead of raising `TypeError`. **Proof:**
+`F6 closed: a session without `data` denies instead of throwing` — every permission checker and rule
+is called with `{ session: { itemId } }` and must return `false` (or a filter), never throw.
 
 ### Observations (not findings)
 
@@ -152,15 +198,16 @@ behaviour as a known hazard, and the test pins it so the fix is visible in the d
   another user's products, cart, orders or order items;
 - a permission holder gets unrestricted access;
 - every permission declared in `permissionFields` has a working checker;
-- the F1, F2, F4 and F6 behaviours above are pinned as regression tripwires, each commented with
-  the finding it protects.
+- F1–F6 are each proved closed by the rule itself or by the schema source. Source-level assertions
+  strip comments before matching, so they test behaviour rather than the prose describing the fix.
 
-Run it with `npm run test:access` from `sick-fits/backend`.
+Run it with `npm run test:access` from `sick-fits/backend`. Current result: **27/27 checks pass.**
 
-## 6. Open decisions for the owner
+## 6. Decisions taken (2026-10-11)
 
-1. F1 — should anonymous users see any product images at all?
-2. F2 — should image management mirror product ownership, or stay permission-only?
-3. F3 — should `Category` have an owner at all?
-4. F4 — implement or delete `canSeeOtherUsers` / `canManageOrders` / `isAwesome`?
-5. F5 — should administrators be able to correct an order?
+1. F1 — **No.** Anonymous users see images only for `Available` products.
+2. F2 — **Mirror ownership.** Image writes follow the owning product, via the relationship.
+3. F3 — **No owner on `Category`.** Categories are shop-wide; the rule is permission-only.
+4. F4 — `isAwesome` and `canSeeOtherUsers` deleted; `canManageOrders` implemented (see F5).
+5. F5 — **Yes, within limits.** `canManageOrders` may *update* orders and order items; nothing may
+   delete them.

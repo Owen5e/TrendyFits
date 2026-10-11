@@ -7,8 +7,10 @@ export const Category = list({
   access: {
     create: isSignedIn,
     read: true, // Everyone can read categories
-    update: rules.canManageProducts, // Use same rules as product management for now
-    delete: rules.canManageProducts,
+    // F3: Category has no `user` field, so `rules.canManageProducts` filtered on a
+    // column that does not exist. Use the rule Category can actually satisfy.
+    update: rules.canManageCategories,
+    delete: rules.canManageCategories,
   },
   hooks: {
     resolveInput: ({ resolvedData, operation }) => {

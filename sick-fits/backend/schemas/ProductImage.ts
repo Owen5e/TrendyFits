@@ -2,7 +2,7 @@ import { cloudinaryImage } from "@keystone-next/cloudinary";
 import { relationship, text } from "@keystone-next/fields";
 import { list } from "@keystone-next/keystone/schema";
 import "dotenv/config";
-import { isSignedIn, permissions } from "../access";
+import { isSignedIn, rules } from "../access";
 
 const cloudinary = {
   cloudName: process.env.CLOUDINARY_CLOUD_NAME,
@@ -14,9 +14,11 @@ const cloudinary = {
 export const ProductImage = list({
   access: {
     create: isSignedIn,
-    read: true,
-    update: permissions.canManageProducts,
-    delete: permissions.canManageProducts,
+    // F1: never world-readable — an image follows its product's status.
+    read: rules.canReadProductImages,
+    // F2: permission-or-ownership, matching the Product list.
+    update: rules.canManageProductImages,
+    delete: rules.canManageProductImages,
   },
   fields: {
     image: cloudinaryImage({

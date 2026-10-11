@@ -7,13 +7,17 @@ import {
 } from "@keystone-next/fields";
 import { list } from "@keystone-next/keystone/schema";
 import formatMoney from "../lib/formatMoney";
-import { isSignedIn, rules } from "../access";
+import { isSignedIn, permissions, rules } from "../access";
 
 export const Order = list({
   access: {
     create: isSignedIn,
     read: rules.canOrder,
-    update: () => false,
+    // F5: order history stays immutable for customers, but an administrator holding
+    // `canManageOrders` can correct a mis-charged order through the API instead of
+    // going into the database. Deleting financial history remains impossible —
+    // corrections are updates, and the record is retained.
+    update: permissions.canManageOrders,
     delete: () => false,
   },
   fields: {

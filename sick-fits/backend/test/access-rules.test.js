@@ -31,12 +31,12 @@
  *   '@keystone-next/fields'  -> { checkbox: () => ({}) }   (field factory)
  *   './types'                -> {}                          (types only)
  *
- * DELIBERATE TRIPWIRES
- * Section 4 of the audit lists findings F1, F2, F3, F4 and F6. Those are NOT yet
- * fixed. The tests pin their CURRENT behaviour with a comment naming the finding,
- * so the day someone fixes one, this file fails loudly and forces the audit doc to
- * be updated in the same commit. If you are fixing F1/F2/F3/F4/F6: change the
- * assertion here AND the corresponding section of docs/ACCESS-AUDIT.md together.
+ * THE FINDINGS ARE CLOSED (day 19)
+ * Section 4 of the audit listed F1, F2, F3, F4, F5 and F6. All six were fixed and
+ * section 4 now records each fix. These tests used to pin the broken behaviour;
+ * they now PROVE the holes are shut, reading the real rule or the real schema and
+ * asserting the closed shape. A regression fails the suite with the finding named.
+ * If you deliberately reopen one, change the test AND the audit doc in the same commit.
  *
  * RUN
  *   npm run test:access
@@ -50,6 +50,12 @@ const BACKEND = path.resolve(__dirname, '..');
 const ACCESS_TS = path.join(BACKEND, 'access.ts');
 const FIELDS_TS = path.join(BACKEND, 'schemas', 'fields.ts');
 const SCHEMAS = path.join(BACKEND, 'schemas');
+
+// Source-level assertions must read CODE, not commentary: the fix comments name the
+// very patterns being checked for, so comments are stripped before matching. That
+// keeps these checks about behaviour instead of about prose.
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const read = (f) => stripComments(fs.readFileSync(path.join(SCHEMAS, f), 'utf8'));
 
 let failures = 0;
 let checks = 0;
@@ -116,7 +122,7 @@ const CART_RIGHTS = sessionFor(OWNER, { canManageCart: true });
 const PRODUCT_RIGHTS = sessionFor(OWNER, { canManageProducts: true });
 const USER_RIGHTS = sessionFor(OWNER, { canManageUsers: true });
 const CATEGORY_RIGHTS = sessionFor(OWNER, { canManageCategories: true });
-const AWESOME = sessionFor(OWNER, {}, 'Owen Olabode');
+const ORDER_RIGHTS = sessionFor(OWNER, { canManageOrders: true });
 
 console.log('\nAnonymous callers are denied every management rule');
 ['canManageProducts', 'canOrder', 'canManageOrderItems', 'canManageUsers', 'canManageCategories']
@@ -187,54 +193,81 @@ check('every permission declared in fields.ts has a callable checker', () => {
     assert.strictEqual(typeof permissions[p], 'function', `${p} has no checker in access.ts`);
   });
 });
-check('isAwesome is name-based (documented, currently unenforced)', () => {
-  assert.strictEqual(permissions.isAwesome(AWESOME), true);
-  assert.strictEqual(permissions.isAwesome(sessionFor(OWNER, {}, 'Ada')), false);
-});
-
-console.log('\nTRIPWIRES on the findings in docs/ACCESS-AUDIT.md');
-console.log('(these pin CURRENT behaviour — update the test AND the doc together when fixing)');
-
-check('F6: a session without `data` throws instead of denying (OPEN)', () => {
-  const partial = { session: { itemId: OWNER } };
-  assert.throws(
-    () => permissions.canManageProducts(partial),
-    TypeError,
-    'F6 appears fixed: the generated permissions now survive a session without `data`. ' +
-      'Update this assertion and section 4/F6 of docs/ACCESS-AUDIT.md.'
-  );
-});
-
-check('F1/F2: ProductImage is still read:true and permission-only for writes (OPEN)', () => {
-  const src = fs.readFileSync(path.join(SCHEMAS, 'ProductImage.ts'), 'utf8');
-  assert.match(src, /read:\s*true/,
-    'F1 appears fixed: ProductImage is no longer world-readable. Update the doc.');
-  assert.match(src, /permissions\.canManageProducts/,
-    'F2 appears fixed: ProductImage writes no longer use the permission-only rule. Update the doc.');
-  const product = fs.readFileSync(path.join(SCHEMAS, 'Product.ts'), 'utf8');
-  assert.match(product, /rules\.canManageProducts/,
-    'Product no longer uses the ownership-aware rule — F2 comparison is stale.');
-});
-
-check('F3: Category still borrows the product rule it cannot satisfy (OPEN)', () => {
-  const src = fs.readFileSync(path.join(SCHEMAS, 'Category.ts'), 'utf8');
-  assert.match(src, /rules\.canManageProducts/,
-    'F3 appears fixed: Category no longer uses the product rule. Update the doc.');
-});
-
-check('F4: isAwesome / canSeeOtherUsers / canManageOrders remain unenforced (OPEN)', () => {
-  const read = (f) => fs.readFileSync(path.join(SCHEMAS, f), 'utf8');
-  const schemaFiles = fs.readdirSync(SCHEMAS).filter((f) => f.endsWith('.ts') && f !== 'fields.ts');
-  const schemaText = schemaFiles.map(read).join('\n');
-  const accessText = fs.readFileSync(ACCESS_TS, 'utf8');
-
-  ['canSeeOtherUsers', 'canManageOrders'].forEach((p) => {
-    assert.ok(!schemaText.includes(p),
-      `F4 appears fixed: ${p} is now used by a schema. Update the doc.`);
+check('F4 closed: nothing is declared that the code does not enforce', () => {
+  const accessText = stripComments(fs.readFileSync(ACCESS_TS, 'utf8'));
+  assert.strictEqual((accessText.match(/isAwesome/g) || []).length, 0,
+    'isAwesome is back in access.ts — F4 has regressed');
+  assert.ok(!permissionsList.includes('canSeeOtherUsers'),
+    'canSeeOtherUsers is back in permissionFields, offering a capability no rule grants — F4 has regressed');
+  // every permission the Role screen can tick must be referenced by a schema or a rule
+  const sourceText = fs.readdirSync(SCHEMAS)
+    .filter((f) => f.endsWith('.ts') && f !== 'fields.ts')
+    .map(read)
+    .join('\n');
+  permissionsList.forEach((p) => {
+    assert.ok(sourceText.includes(p) || accessText.includes(p),
+      `${p} is offered by the Role UI but enforced nowhere — F4 has regressed`);
   });
-  assert.strictEqual(
-    (accessText.match(/isAwesome/g) || []).length, 2,
-    'F4 appears fixed: isAwesome is referenced somewhere beyond its declaration and type. Update the doc.');
+});
+
+console.log('\nThe findings in docs/ACCESS-AUDIT.md are closed — each proved below');
+
+const allSchemas = fs.readdirSync(SCHEMAS).filter((f) => f.endsWith('.ts') && f !== 'fields.ts');
+const schemaText = allSchemas.map(read).join('\n');
+
+check('F6 closed: a session without `data` denies instead of throwing', () => {
+  const partial = { session: { itemId: OWNER } };
+  permissionsList.forEach((p) => {
+    assert.strictEqual(permissions[p](partial), false, `${p} allowed or threw on a partial session`);
+  });
+  ['canManageProducts', 'canOrder', 'canManageOrderItems', 'canManageUsers', 'canManageCategories',
+   'canReadProducts', 'canReadProductImages', 'canManageProductImages']
+    .forEach((r) => assert.doesNotThrow(() => rules[r](partial), `rules.${r} threw on a partial session`));
+});
+
+check('F1 closed: a product image is only as public as its product', () => {
+  const anon = rules.canReadProductImages(ANON);
+  assert.notStrictEqual(anon, true,
+    'canReadProductImages returned true for an anonymous caller — unpublished product images are public again');
+  assert.deepStrictEqual(anon, { product: { status: 'Available' } });
+  assert.strictEqual(rules.canReadProductImages(PRODUCT_RIGHTS), true);
+  const src = read('ProductImage.ts');
+  assert.match(src, /read:\s*rules\.canReadProductImages/,
+    'ProductImage.read no longer uses the status-aware rule — F1 has regressed');
+  assert.ok(!/read:\s*true/.test(src), 'ProductImage.read is world-readable again');
+});
+
+check('F2 closed: image writes mirror product ownership, not permission-only', () => {
+  assert.strictEqual(rules.canManageProductImages(ANON), false);
+  assert.deepStrictEqual(rules.canManageProductImages(NO_RIGHTS), { product: { user: { id: OWNER } } });
+  assert.strictEqual(rules.canManageProductImages(PRODUCT_RIGHTS), true);
+  assert.ok(!/permissions\.canManageProducts/.test(read('ProductImage.ts')),
+    'ProductImage writes are permission-only again — F2 has regressed');
+});
+
+check('F3 closed: Category uses a rule it can actually satisfy', () => {
+  const src = read('Category.ts');
+  assert.ok(!/rules\.canManageProducts/.test(src),
+    'Category is borrowing the product rule again — F3 has regressed');
+  assert.match(src, /rules\.canManageCategories/);
+  // the borrowed rule filtered on a column Category does not have; this one only answers
+  assert.strictEqual(rules.canManageCategories(NO_RIGHTS), false);
+  assert.strictEqual(rules.canManageCategories(CATEGORY_RIGHTS), true);
+});
+
+check('F5 closed: order corrections are gated on canManageOrders; nothing is deleted', () => {
+  [['Order.ts', read('Order.ts')], ['OrderItems.ts', read('OrderItems.ts')]].forEach(([name, src]) => {
+    assert.ok(!/update:\s*\(\)\s*=>\s*false/.test(src),
+      `${name} still denies every update, so nobody can correct an order — F5 is open`);
+    assert.match(src, /update:\s*permissions\.canManageOrders/, `${name}.update is not gated on canManageOrders`);
+    assert.match(src, /delete:\s*\(\)\s*=>\s*false/,
+      `${name}.delete changed — deleting financial history must stay impossible`);
+  });
+  assert.strictEqual(permissions.canManageOrders(ANON), false);
+  assert.strictEqual(permissions.canManageOrders(NO_RIGHTS), false);
+  assert.strictEqual(permissions.canManageOrders(ORDER_RIGHTS), true);
+  assert.ok(schemaText.includes('canManageOrders'),
+    'canManageOrders is declared but enforced nowhere — F4 has regressed');
 });
 
 console.log('\nAll access rules in every list are accounted for');
