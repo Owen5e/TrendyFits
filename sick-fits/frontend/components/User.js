@@ -16,6 +16,9 @@ export const CURRENT_USER_QUERY = gql`
             id
             price
             name
+            # Day 20: the per-line ceiling is the product's own stock, so the cart
+            # screen can disable its + button before the server has to refuse.
+            stock
             description
             photo {
               image {
@@ -42,9 +45,6 @@ export function useUser() {
   if (loading) {
     console.log('Loading user data...');
   }
-
-  console.log('Current user data:', data?.authenticatedItem);
-  console.log('Cart items:', data?.authenticatedItem?.cart);
 
   return data?.authenticatedItem;
 }

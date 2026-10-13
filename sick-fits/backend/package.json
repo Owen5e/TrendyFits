@@ -12,6 +12,7 @@
     "seed-data": "keystone-next --seed-data",
     "test:admin-ui-import": "node test/admin-ui-api-import.test.js",
     "test:access": "node test/access-rules.test.js",
+    "test:cart": "node test/cart-rules.test.js",
     "postinstall": "patch-package"
   },
   "babel": {

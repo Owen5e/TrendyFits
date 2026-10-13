@@ -1,5 +1,6 @@
 /* eslint-disable */
 import { KeystoneContext } from '@keystone-next/types';
+import { lineLimit } from '../lib/cartRules';
 
 export default async function addToCart(
   root: any,
@@ -16,6 +17,21 @@ export default async function addToCart(
   const currentUserId = sesh.itemId;
 
   console.log('Current user ID:', currentUserId);
+
+  // 1b. Day 20, "max stock": a per-line ceiling has to be enforced where the write
+  // happens, not only on the screen. The product is read first so the cap is the
+  // real one (its stock, or the default line limit when stock is not recorded).
+  // Read through the list API, so `rules.canReadProducts` applies: a Draft or
+  // Unavailable product is not findable here and cannot be added to a cart.
+  // No `query` argument: keystone-next 9's generated types for `.findOne` only
+  // accept `where`, and the default selection returns the whole item — including
+  // the `stock` this rule needs. (Day 19's log has the same lesson: a cast or a
+  // widened signature to satisfy tsc would have added a 24th pre-existing error.)
+  const product = await context.lists.Product.findOne({ where: { id: productId } });
+  if (!product) {
+    throw new Error('That product is not available.');
+  }
+  const limit = lineLimit(product);
 
   // 2 query the current user's cart
   // Use context.lists.CartItem.findMany() - the access control (rules.canOrder)
@@ -87,8 +103,15 @@ export default async function addToCart(
     console.log('Current quantity:', currentQuantity);
 
     // 3 see if the item is already in their cart
-    // 4 if it is, increment by 1
+    // 4 if it is, increment by 1 — unless that would break the line ceiling.
     const newQuantity = currentQuantity + 1;
+    if (newQuantity > limit) {
+      // Refuse in words the customer can act on, and never write the over-limit
+      // number: the day-20 rule is that the screen is advisory and this is the cap.
+      throw new Error(
+        `Only ${limit} of ${product.name} per order — your bag already has ${currentQuantity}.`,
+      );
+    }
     console.log('Updating cart item with new quantity:', newQuantity);
 
     // Use GraphQL directly to update with the new quantity

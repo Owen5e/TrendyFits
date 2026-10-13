@@ -1,22 +1,119 @@
-import calcTotalPrice from '../lib/calcTotalPrice';
+import { useMutation } from '@apollo/client';
+import gql from 'graphql-tag';
+import { useState } from 'react';
+import { cartSummary, lineLimit, clampQuantity } from '../lib/cartLines';
 import { useCart } from '../lib/cartState';
 import formatMoney from '../lib/formatMoney';
 import { Checkout } from './Checkout';
 import RemoveFromCart from './RemoveFromCart';
-import { useUser } from './User';
+import { CURRENT_USER_QUERY, useUser } from './User';
 
-function CartItem({ cartItem }) {
-  const { product } = cartItem;
-  console.log('CartItem - cartItem:', cartItem);
-  console.log('CartItem - product:', product);
-  if (!product) {
-    console.log('CartItem - no product, returning null');
-    return null;
+// Day 20, "quantity changes": the cart can now change a line's quantity in place.
+// The mutation is Keystone's generated updateCartItem; `rules.canOrder` on the
+// CartItem list means a customer can only reach their own rows.
+export const UPDATE_CART_ITEM_MUTATION = gql`
+  mutation UPDATE_CART_ITEM_MUTATION($id: ID!, $quantity: Int!) {
+    updateCartItem(id: $id, data: { quantity: $quantity }) {
+      id
+      quantity
+      product {
+        id
+        name
+        price
+        stock
+      }
+    }
   }
+`;
+
+/**
+ * The − / + control. Deliberately dumb: it is handed the number, the bounds and
+ * two callbacks, so it can be tested on its own and reused by both the signed-in
+ * cart and (day 21) the browser-held cart.
+ *
+ * `aria-label`s name the product, because a bag with three of the same figure is
+ * unusable with a screen reader otherwise.
+ */
+export function QuantityStepper({
+  quantity,
+  limit,
+  name = 'this item',
+  busy = false,
+  onDecrease,
+  onIncrease
+}) {
+  const atFloor = quantity <= 1;
+  const atLimit = quantity >= limit;
 
   return (
-    <li className="flex items-center justify-between py-4 border-b border-neutral-200">
-      <div className="flex items-center space-x-4 flex-1 min-w-0">
+    <div className="flex items-center gap-2" data-testid="quantity-stepper">
+      <button
+        type="button"
+        onClick={onDecrease}
+        disabled={busy || atFloor}
+        aria-label={`Decrease quantity of ${name}`}
+        title={atFloor ? 'Use remove to take this out of your bag' : 'One fewer'}
+        className="w-8 h-8 flex items-center justify-center rounded-full border border-neutral-300 text-neutral-600 hover:border-neutral-500 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        &minus;
+      </button>
+      <span
+        className="w-8 text-center tabular-nums font-medium text-neutral-800"
+        data-testid="quantity-value"
+        aria-live="polite"
+      >
+        {quantity}
+      </span>
+      <button
+        type="button"
+        onClick={onIncrease}
+        disabled={busy || atLimit}
+        aria-label={`Increase quantity of ${name}`}
+        title={atLimit ? `Only ${limit} per order` : 'One more'}
+        className="w-8 h-8 flex items-center justify-center rounded-full border border-neutral-300 text-neutral-600 hover:border-neutral-500 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+function CartItem({ cartItem, onChangeQuantity, busyId, error }) {
+  const { product } = cartItem;
+
+  // A line whose product was deleted still exists on the server. It cannot be
+  // priced, but it must stay visible — Hiding it would leave the customer with a
+  // bag count they cannot clear.
+  if (!product) {
+    return (
+      <li
+        className="flex items-center justify-between py-4 border-b border-neutral-200"
+        data-testid="cart-line-unavailable"
+      >
+        <div className="flex-1 min-w-0">
+          <h3 className="text-lg font-semibold text-neutral-500">No longer available</h3>
+          <p className="mt-1 text-sm text-neutral-500">
+            This item was removed from the shop and is not counted in your total. Remove it to
+            clear the line.
+          </p>
+        </div>
+        <div className="ml-4 flex-shrink-0">
+          <RemoveFromCart id={cartItem.id} label="this unavailable item" />
+        </div>
+      </li>
+    );
+  }
+
+  const limit = lineLimit(product);
+  const lineTotal = product.price * cartItem.quantity;
+  const atLimit = cartItem.quantity >= limit;
+
+  return (
+    <li
+      className="flex items-start justify-between py-4 border-b border-neutral-200"
+      data-testid="cart-line"
+    >
+      <div className="flex items-start space-x-4 flex-1 min-w-0">
         <img
           src={product.photo?.image?.publicUrlTransformed}
           alt={product.name}
@@ -25,16 +122,38 @@ function CartItem({ cartItem }) {
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold text-neutral-800 truncate">{product.name}</h3>
           <div className="mt-1 text-sm text-neutral-600">
-            <span className="font-medium">{formatMoney(product.price * cartItem.quantity)}</span>
+            <span className="font-medium" data-testid="line-total">
+              {formatMoney(lineTotal)}
+            </span>
             <span className="mx-1">-</span>
             <span className="text-neutral-500">
-              {cartItem.quantity} × {formatMoney(product.price)} each
+              {cartItem.quantity} &times; {formatMoney(product.price)} each
             </span>
+          </div>
+          <div className="mt-3">
+            <QuantityStepper
+              quantity={cartItem.quantity}
+              limit={limit}
+              name={product.name}
+              busy={busyId === cartItem.id}
+              onDecrease={() => onChangeQuantity(cartItem, -1)}
+              onIncrease={() => onChangeQuantity(cartItem, 1)}
+            />
+            {atLimit && (
+              <p className="mt-1 text-xs text-amber-700" data-testid="line-limit-note">
+                {limit === 1 ? 'Only one left' : `Only ${limit} per order`}
+              </p>
+            )}
+            {error && busyId !== cartItem.id && (
+              <p className="mt-1 text-xs text-red-600" data-testid="line-error">
+                {error}
+              </p>
+            )}
           </div>
         </div>
       </div>
       <div className="ml-4 flex-shrink-0">
-        <RemoveFromCart id={cartItem.id} />
+        <RemoveFromCart id={cartItem.id} label={product.name} />
       </div>
     </li>
   );
@@ -43,21 +162,50 @@ function CartItem({ cartItem }) {
 export default function Cart() {
   const me = useUser();
   const { cartOpen, closeCart } = useCart();
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
+  const [errorId, setErrorId] = useState(null);
+  const [notice, setNotice] = useState(null);
 
-  console.log('Cart component - me:', me);
-  console.log('Cart component - me.cart:', me?.cart);
+  const [updateCartItem] = useMutation(UPDATE_CART_ITEM_MUTATION, {
+    refetchQueries: [{ query: CURRENT_USER_QUERY, fetchPolicy: 'network-only' }],
+    awaitRefetchQueries: true
+  });
 
   if (!me) {
-    console.log('Cart component - no user, returning null');
     return null;
   }
 
-  const cartItems = me.cart || [];
-  const isEmpty = cartItems.length === 0;
-  const totalPrice = calcTotalPrice(cartItems);
+  const { lines, priced, unavailable, count, totalPrice, isEmpty } = cartSummary(me.cart);
 
-  console.log('Cart component - cartItems:', cartItems);
-  console.log('Cart component - isEmpty:', isEmpty);
+  async function handleChangeQuantity(cartItem, delta) {
+    const limit = lineLimit(cartItem.product);
+    const wanted = clampQuantity(Number(cartItem.quantity) + delta, limit);
+
+    setNotice(null);
+    setErrorId(null);
+
+    // The stepper is already disabled at both bounds; this is the guard for a
+    // double-click that lands twice before the refetch returns.
+    if (wanted === Number(cartItem.quantity)) {
+      setNotice(
+        delta > 0 ? `Only ${limit} per order.` : 'Use remove to take this out of your bag.'
+      );
+      return;
+    }
+
+    setBusyId(cartItem.id);
+    setError(null);
+
+    try {
+      await updateCartItem({ variables: { id: cartItem.id, quantity: wanted } });
+    } catch (err) {
+      setError(err?.message || 'Could not change that quantity.');
+      setErrorId(cartItem.id);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div
@@ -65,17 +213,20 @@ export default function Cart() {
         cartOpen ? 'translate-x-0' : 'translate-x-full'
       }`}
       style={{ maxWidth: '28rem' }}
+      data-testid="cart-drawer"
     >
       <div className="h-full flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-neutral-200">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-neutral-900">{me.name}'s Cart</h2>
-              <p className="text-sm text-neutral-500 mt-1">
+              <h2 className="text-2xl font-bold text-neutral-900">{me.name}&apos;s Cart</h2>
+              <p className="text-sm text-neutral-500 mt-1" data-testid="cart-summary">
                 {isEmpty
                   ? 'Your cart is empty'
-                  : `${cartItems.length} item${cartItems.length !== 1 ? 's' : ''}`}
+                  : `${count} item${count !== 1 ? 's' : ''} in ${priced.length} line${
+                      priced.length !== 1 ? 's' : ''
+                    }`}
               </p>
             </div>
             <button
@@ -87,6 +238,19 @@ export default function Cart() {
             </button>
           </div>
         </div>
+
+        {/* Notice / error strip — the cart always says why it refused something */}
+        {(notice || error) && (
+          <div className="px-6 pt-3">
+            <p
+              className={`text-xs ${error ? 'text-red-600' : 'text-amber-700'}`}
+              data-testid="cart-notice"
+              role="status"
+            >
+              {error || notice}
+            </p>
+          </div>
+        )}
 
         {/* Cart Items */}
         <div className="flex-1 overflow-y-auto px-6 py-2">
@@ -117,9 +281,15 @@ export default function Cart() {
               </button>
             </div>
           ) : (
-            <ul className="space-y-2">
-              {cartItems.map(cartItem => (
-                <CartItem key={cartItem.id} cartItem={cartItem} />
+            <ul className="space-y-2" data-testid="cart-lines">
+              {lines.map(cartItem => (
+                <CartItem
+                  key={cartItem.id || cartItem.productId}
+                  cartItem={cartItem}
+                  onChangeQuantity={handleChangeQuantity}
+                  busyId={busyId}
+                  error={errorId === cartItem.id ? error : null}
+                />
               ))}
             </ul>
           )}
@@ -130,8 +300,16 @@ export default function Cart() {
           <div className="border-t border-neutral-200 px-6 py-2">
             <div className="flex items-center justify-between mb-2">
               <span className="text-lg font-semibold text-neutral-700">Total</span>
-              <span className="text-2xl font-bold text-primary">{formatMoney(totalPrice)}</span>
+              <span className="text-2xl font-bold text-primary" data-testid="cart-total">
+                {formatMoney(totalPrice)}
+              </span>
             </div>
+            {unavailable.length > 0 && (
+              <p className="text-xs text-neutral-500 mb-2">
+                {unavailable.length} line{unavailable.length !== 1 ? 's are' : ' is'} no longer
+                available and {unavailable.length !== 1 ? 'are' : 'is'} not counted in this total.
+              </p>
+            )}
             <div className="space-y-3">
               <Checkout />
               <button

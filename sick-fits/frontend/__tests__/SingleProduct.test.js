@@ -1,7 +1,8 @@
 /* eslint-disable */
 import { MockedProvider } from '@apollo/client/testing';
 import { render, screen } from '@testing-library/react';
-import SingleProduct, { SINGLE_PRODUCT_QUERY } from '../components/SingleProduct';
+import SingleProduct, { SINGLE_PRODUCT_QUERY } from '../components/SingleProduct';
+import { CartStateProvider } from '../lib/cartState';
 import { fakeItem, snapshotHTML } from '../lib/testUtils';
 
 const product = fakeItem();
@@ -28,7 +29,7 @@ describe('<SingleProduct/>', () => {
     // we need to make some fake data
     const { container, debug } = render(
       <MockedProvider mocks={mocks}>
-        <SingleProduct id="123" />
+        <CartStateProvider><SingleProduct id="123" /></CartStateProvider>
       </MockedProvider>
     );
     // wait for test id to show up
@@ -52,7 +53,7 @@ describe('<SingleProduct/>', () => {
     ];
     const { container, debug } = render(
       <MockedProvider mocks={errorMocks}>
-        <SingleProduct id="123" />
+        <CartStateProvider><SingleProduct id="123" /></CartStateProvider>
       </MockedProvider>
     );
     await screen.findByTestId('graphql-error');

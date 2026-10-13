@@ -38,6 +38,18 @@ export const Product = list({
       },
     }),
     price: integer(),
+    // Day 20, "max stock": a per-line ceiling needs a real number to cap against.
+    // Before this field the only possible limit was a hard-coded constant, which
+    // is what `lib/cartRules.ts#lineLimit` falls back to when this is null. Keystone
+    // adds the column on the next `npm run dev`; existing rows read as null, and
+    // null means "use the default line limit" rather than "sold out".
+    stock: integer({
+      defaultValue: 100,
+      ui: {
+        description:
+          'Units available. Caps how many may sit in one cart line (1–stock). Leave empty to fall back to the default line limit.',
+      },
+    }),
     user: relationship({
       ref: 'User.products',
       defaultValue: ({ context }) => ({
