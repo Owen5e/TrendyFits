@@ -138,6 +138,26 @@ export function changeLineQuantity(cart, productId, delta) {
   };
 }
 
+/**
+ * The rule a browser-side cart and a server-side cart are folded together with:
+ * per product the LARGER quantity wins, never the sum. Mirror of
+ * `mergeQuantity` in `sick-fits/backend/lib/cartRules.ts`.
+ *
+ * Summing double-counts an item the customer added on both the phone and while
+ * signed in; the maximum never loses a line and never invents stock. `0` on either
+ * side means "no line here", so a line that exists only in the browser survives the
+ * merge intact (capped by the limit like any other).
+ */
+export function mergeQuantity(serverQuantity, incomingQuantity, limit = DEFAULT_LINE_LIMIT) {
+  const server = Number(serverQuantity);
+  const incoming = Number(incomingQuantity);
+  const biggest = Math.max(
+    Number.isFinite(server) ? server : 0,
+    Number.isFinite(incoming) ? incoming : 0
+  );
+  return clampQuantity(biggest, limit);
+}
+
 /** Take a line out of the cart entirely. */
 export function removeLine(cart, productId) {
   return (cart || []).filter((line) => line && productIdOf(line) !== productId);

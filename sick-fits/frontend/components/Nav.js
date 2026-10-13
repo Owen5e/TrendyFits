@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Space_Mono } from 'next/font/google';
 import { useEffect, useRef, useState } from 'react';
+import { mergeForDisplay } from '../lib/anonCart';
+import { cartSummary } from '../lib/cartLines';
 import { useCart } from '../lib/cartState';
 import CartCount from './CartCount';
 import { useUser } from './User';
@@ -19,7 +21,7 @@ export default function Nav({ onToggleSearch, isSearchOpen = false }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  const { openCart } = useCart();
+  const { openCart, localCart = [] } = useCart();
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -48,11 +50,12 @@ export default function Nav({ onToggleSearch, isSearchOpen = false }) {
       isActive(path) ? 'border-[#ff4a17] text-black' : 'border-transparent'
     }`;
 
-  const bagCount =
-    user?.cart?.reduce(
-      (tally, cartItem) => tally + (cartItem?.product ? cartItem.quantity : 0),
-      0
-    ) || 0;
+  // Day 21: the badge counts the cart the customer is actually carrying — the
+  // server cart when signed in, the browser cart when signed out, and the
+  // larger-quantity union of the two while a merge is still in flight. Counting
+  // both sides separately would double-count a line that is in both.
+  const bagLines = mergeForDisplay(user?.cart || [], localCart);
+  const { count: bagCount } = cartSummary(bagLines);
 
   const SearchIcon = () => (
     <svg
@@ -132,17 +135,16 @@ export default function Nav({ onToggleSearch, isSearchOpen = false }) {
           <AccountIcon />
         </Link>
 
-        {user && (
-          <button
-            type="button"
-            onClick={openCart}
-            className="text-[#4a463c] hover:text-black transition-colors font-medium flex items-center md:py-0 md:px-0"
-          >
-            <span className="ml-1 pb-0.5">🛒 </span>
-            <span>Bag </span>
-            <CartCount count={bagCount} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={openCart}
+          aria-label="Open bag"
+          className="text-[#4a463c] hover:text-black transition-colors font-medium flex items-center md:py-0 md:px-0"
+        >
+          <span className="ml-1 pb-0.5">🛒 </span>
+          <span>Bag </span>
+          <CartCount count={bagCount} />
+        </button>
       </div>
     </div>
   );
@@ -158,17 +160,16 @@ export default function Nav({ onToggleSearch, isSearchOpen = false }) {
           Account
         </Link>
       )}
-      {user && (
-        <button
-          type="button"
-          onClick={openCart}
-          className="text-[#4a463c] hover:text-black transition-colors font-medium flex items-center py-2 px-4"
-        >
-          <span className="ml-1 pb-0.5">🛒 </span>
-          <span>Bag </span>
-          <CartCount count={bagCount} />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={openCart}
+        aria-label="Open bag"
+        className="text-[#4a463c] hover:text-black transition-colors font-medium flex items-center py-2 px-4"
+      >
+        <span className="ml-1 pb-0.5">🛒 </span>
+        <span>Bag </span>
+        <CartCount count={bagCount} />
+      </button>
     </div>
   );
 

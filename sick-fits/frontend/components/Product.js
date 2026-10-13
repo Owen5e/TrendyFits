@@ -26,7 +26,7 @@ export default function Product({ product }) {
 
         <div className="absolute inset-x-0 bottom-0 z-10 p-2 opacity-0 translate-y-6 pointer-events-none transition-all duration-300 group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0 group-focus-within:pointer-events-auto">
           <div className="rounded-lg backdrop-blur-sm  shadow-lg ">
-            <AddToCart id={product.id} />
+            <AddToCart id={product.id} product={product} />
           </div>
         </div>
       </div>

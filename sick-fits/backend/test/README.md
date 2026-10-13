@@ -63,3 +63,17 @@ so its controls can disable themselves before a customer hits a wall. Both sides
 assert the constants against each other — this test reads the frontend file, and
 `frontend/__tests__/cartRulesMirror.test.js` reads this one — so the mirror
 cannot drift silently.
+
+## `npm run test:merge`
+
+`cart-merge.test.js` -- the write path day 21 added: `mutations/mergeCart.ts`, which
+folds a browser-held cart into a signed-in account's cart.
+
+It is compiled in-process (again with `ts.transpileModule`, and with the real
+`lib/cartRules.ts` injected) and handed a fake Keystone context that records every
+read and write, so the assertions are about behaviour: what gets written, what is
+left alone, and what is dropped. The merge rule it proves is "per product the larger
+quantity wins, never the sum" -- the day-21 acceptance check is that adding items
+signed out and then signing in loses nothing and double-counts nothing.
+
+**Result on 2026-10-13 (Windows, Node 26.2.0):** `13/13 checks passed`.

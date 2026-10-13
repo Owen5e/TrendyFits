@@ -45,8 +45,13 @@ function update(cache, payload) {
  *    what makes the guarded eviction above safe.
  * 3. The control names what it removes, so a bag with three of the same figure
  *    is usable with a screen reader.
+ *
+ * Day 21 added the `local` mode: a line held only in this browser has no server
+ * row to delete, so the caller's `onRemove(productId)` is used instead and no
+ * mutation is sent. Without it, removing a signed-out line would hit the API with
+ * an id the server has never heard of.
  */
-export default function RemoveFromCart({ id, label = 'item' }) {
+export default function RemoveFromCart({ id, label = 'item', onRemove, local = false }) {
   const [errorMessage, setErrorMessage] = useState(null);
   const [removeFromCart, { loading }] = useMutation(REMOVE_FROM_CART_MUTATION, {
     variables: { id },
@@ -57,6 +62,12 @@ export default function RemoveFromCart({ id, label = 'item' }) {
 
   async function handleRemove() {
     setErrorMessage(null);
+
+    if (local) {
+      if (onRemove) onRemove(id);
+      return;
+    }
+
     try {
       await removeFromCart();
     } catch (err) {
@@ -68,7 +79,7 @@ export default function RemoveFromCart({ id, label = 'item' }) {
     <>
       <button
         onClick={handleRemove}
-        disabled={loading}
+        disabled={!local && loading}
         type="button"
         title="Remove item from cart"
         aria-label={`Remove ${label} from cart`}

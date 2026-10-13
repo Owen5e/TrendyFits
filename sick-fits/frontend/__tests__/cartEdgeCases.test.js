@@ -88,6 +88,12 @@ const renderCart = mocks =>
     </MockedProvider>
   );
 
+beforeEach(() => {
+  // The browser cart (day 21) lives in localStorage; a leftover line from an
+  // earlier test would show up in these signed-in renders.
+  window.localStorage.clear();
+});
+
 describe('<Cart/> — price recalculation', () => {
   it('prices each line, totals them, and recalculates after a quantity change', async () => {
     const before = [cartLine(), socks()];
@@ -258,15 +264,17 @@ describe('<AddToCart/> — the ceiling', () => {
     );
   });
 
-  it('sends a signed-out customer to sign in', async () => {
+  // CHANGED ON DAY 21: a signed-out customer used to be redirected to /signin.
+  // They now keep the bag in the browser and it merges into the account on sign-in,
+  // so this became the opposite assertion. The full signed-out path is covered in
+  // __tests__/anonymousCart.test.js.
+  it('keeps a signed-out customer on the product instead of sending them away', async () => {
     useRouter().push.mockClear();
     renderAddToCart([signedOutMock(), signedOutMock()]);
 
     fireEvent.click(await screen.findByRole('button', { name: /ADD TO BAG/i }));
     await wait(0);
 
-    expect(useRouter().push).toHaveBeenCalledWith(
-      expect.objectContaining({ pathname: '/signin' })
-    );
+    expect(useRouter().push).not.toHaveBeenCalled();
   });
 });

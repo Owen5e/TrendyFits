@@ -7,6 +7,7 @@ import withData from '../lib/withData';
 
 // Use default nprogress styles
 import 'nprogress/nprogress.css';
+import MergeAnonymousCart from '../components/MergeAnonymousCart';
 import { CartStateProvider } from '../lib/cartState';
 import '../styles/globals.css';
 
@@ -30,6 +31,10 @@ function MyApp({ Component, pageProps, apollo }) {
             {/* eslint-disable-next-line react/jsx-props-no-spreading */}
             <Component {...pageProps} />
           </Page>
+          {/* Day 21: mounted once, inside the Apollo and cart providers, so a sign-in
+              from any page moves the browser cart into the account. Renders nothing
+              unless a merge fails. */}
+          <MergeAnonymousCart />
         </div>
       </CartStateProvider>
     </ApolloProvider>

@@ -1,7 +1,9 @@
 import { useMutation } from '@apollo/client';
 import gql from 'graphql-tag';
+import Link from 'next/link';
 import { useState } from 'react';
-import { cartSummary, lineLimit, clampQuantity } from '../lib/cartLines';
+import { mergeForDisplay } from '../lib/anonCart';
+import { cartSummary, clampQuantity, lineLimit, productIdOf } from '../lib/cartLines';
 import { useCart } from '../lib/cartState';
 import formatMoney from '../lib/formatMoney';
 import { Checkout } from './Checkout';
@@ -78,7 +80,7 @@ export function QuantityStepper({
   );
 }
 
-function CartItem({ cartItem, onChangeQuantity, busyId, error }) {
+function CartItem({ cartItem, onChangeQuantity, onRemoveLocal, busyId, error }) {
   const { product } = cartItem;
 
   // A line whose product was deleted still exists on the server. It cannot be
@@ -98,7 +100,16 @@ function CartItem({ cartItem, onChangeQuantity, busyId, error }) {
           </p>
         </div>
         <div className="ml-4 flex-shrink-0">
-          <RemoveFromCart id={cartItem.id} label="this unavailable item" />
+          {cartItem.local ? (
+            <RemoveFromCart
+              id={cartItem.id}
+              label="this unavailable item"
+              onRemove={onRemoveLocal}
+              local
+            />
+          ) : (
+            <RemoveFromCart id={cartItem.id} label="this unavailable item" />
+          )}
         </div>
       </li>
     );
@@ -153,7 +164,11 @@ function CartItem({ cartItem, onChangeQuantity, busyId, error }) {
         </div>
       </div>
       <div className="ml-4 flex-shrink-0">
-        <RemoveFromCart id={cartItem.id} label={product.name} />
+        {cartItem.local ? (
+          <RemoveFromCart id={cartItem.id} label={product.name} onRemove={onRemoveLocal} local />
+        ) : (
+          <RemoveFromCart id={cartItem.id} label={product.name} />
+        )}
       </div>
     </li>
   );
@@ -161,7 +176,13 @@ function CartItem({ cartItem, onChangeQuantity, busyId, error }) {
 
 export default function Cart() {
   const me = useUser();
-  const { cartOpen, closeCart } = useCart();
+  const {
+    cartOpen,
+    closeCart,
+    localCart = [],
+    changeLocalQuantity,
+    removeLocalItem
+  } = useCart();
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState(null);
   const [errorId, setErrorId] = useState(null);
@@ -172,11 +193,15 @@ export default function Cart() {
     awaitRefetchQueries: true
   });
 
-  if (!me) {
-    return null;
-  }
+  const signedIn = !!me;
 
-  const { lines, priced, unavailable, count, totalPrice, isEmpty } = cartSummary(me.cart);
+  // Day 21: a signed-out visitor sees the cart held in this browser. A signed-in
+  // customer sees their server cart with any browser-held lines folded in by the
+  // same larger-quantity rule the merge uses — so an unmerged line is visible
+  // rather than looking like it vanished.
+  const lines = mergeForDisplay(signedIn ? me.cart || [] : [], localCart);
+  const { priced, unavailable, count, totalPrice, isEmpty } = cartSummary(lines);
+  const pendingLocal = localCart.length;
 
   async function handleChangeQuantity(cartItem, delta) {
     const limit = lineLimit(cartItem.product);
@@ -191,6 +216,12 @@ export default function Cart() {
       setNotice(
         delta > 0 ? `Only ${limit} per order.` : 'Use remove to take this out of your bag.'
       );
+      return;
+    }
+
+    // Local lines change in the browser; there is no server row to write yet.
+    if (!signedIn || cartItem.local) {
+      changeLocalQuantity(productIdOf(cartItem), delta);
       return;
     }
 
@@ -220,7 +251,9 @@ export default function Cart() {
         <div className="px-6 py-4 border-b border-neutral-200">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-neutral-900">{me.name}&apos;s Cart</h2>
+              <h2 className="text-2xl font-bold text-neutral-900">
+                {signedIn ? `${me.name}'s Cart` : 'Your Bag'}
+              </h2>
               <p className="text-sm text-neutral-500 mt-1" data-testid="cart-summary">
                 {isEmpty
                   ? 'Your cart is empty'
@@ -284,9 +317,10 @@ export default function Cart() {
             <ul className="space-y-2" data-testid="cart-lines">
               {lines.map(cartItem => (
                 <CartItem
-                  key={cartItem.id || cartItem.productId}
+                  key={cartItem.id || productIdOf(cartItem)}
                   cartItem={cartItem}
                   onChangeQuantity={handleChangeQuantity}
+                  onRemoveLocal={removeLocalItem}
                   busyId={busyId}
                   error={errorId === cartItem.id ? error : null}
                 />
@@ -298,6 +332,12 @@ export default function Cart() {
         {/* Footer */}
         {!isEmpty && (
           <div className="border-t border-neutral-200 px-6 py-2">
+            {signedIn && pendingLocal > 0 && (
+              <p className="text-xs text-neutral-500 mb-2" data-testid="merge-pending-note">
+                {pendingLocal} line{pendingLocal !== 1 ? 's' : ''} from this device{' '}
+                {pendingLocal !== 1 ? 'are' : 'is'} being merged into your bag.
+              </p>
+            )}
             <div className="flex items-center justify-between mb-2">
               <span className="text-lg font-semibold text-neutral-700">Total</span>
               <span className="text-2xl font-bold text-primary" data-testid="cart-total">
@@ -311,7 +351,23 @@ export default function Cart() {
               </p>
             )}
             <div className="space-y-3">
-              <Checkout />
+              {signedIn ? (
+                <Checkout />
+              ) : (
+                <>
+                  <Link
+                    href="/signin"
+                    className="block w-full py-2 text-center bg-[#16140f] hover:bg-[#ff4a17] text-white font-medium rounded-lg transition-colors"
+                    data-testid="signin-to-checkout"
+                  >
+                    Sign in to check out
+                  </Link>
+                  <p className="text-xs text-neutral-500 text-center">
+                    Your bag is saved on this device and merges into your account when you sign in —
+                    nothing added here is lost.
+                  </p>
+                </>
+              )}
               <button
                 onClick={closeCart}
                 className="w-full py-1 border-2 border-neutral-300 text-neutral-700 font-medium rounded-lg hover:bg-neutral-50 transition-colors"

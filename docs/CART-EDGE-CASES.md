@@ -1,13 +1,14 @@
-# Cart edge cases — `sick-fits/frontend`
+# Cart edge cases and the anonymous cart — `sick-fits`
 
-**Date:** 2026-10-12 (day 20 of 84)
+**Dates:** day 20 (2026-10-12, cart edge cases) and day 21 (2026-10-13, anonymous cart)
 **Task:** Cart edge cases: quantity changes, remove item, max stock, empty cart, price
 recalculation — in `Cart.js`, `AddToCart.js` and `RemoveFromCart.js`, with jest coverage.
 **Acceptance check:** the existing `__tests__` suite still passes and new cases cover each bullet.
 
-**Status:** all five bullets handled, on both sides of the wire. Frontend suite went from
-**29 tests / 10 suites** to **65 tests / 13 suites**, all green. Backend gained
-`npm run test:cart` (**18/18**), and `npm run test:access` still passes (**27/27**).
+**Status:** all five bullets handled, on both sides of the wire, and the cart now works before
+sign-in as well. Frontend suite went from **29 tests / 10 suites** to **84 tests / 14 suites**, all
+green. Backend gained `npm run test:cart` (**18/18**) and `npm run test:merge` (**13/13**);
+`npm run test:access` still passes (**27/27**).
 
 ---
 
@@ -81,8 +82,9 @@ product. The component test changes a quantity and asserts the total moves from 
 ## 3. Evidence
 
 ```
-sick-fits/frontend   npx jest --ci        13 suites, 65 tests, 11 snapshots — all pass
+sick-fits/frontend   npx jest --ci        14 suites, 84 tests, 11 snapshots — all pass
 sick-fits/backend    npm run test:cart    18/18 checks pass
+sick-fits/backend    npm run test:merge   13/13 checks pass   (day 21)
 sick-fits/backend    npm run test:access  27/27 checks pass
 sick-fits/backend    npx tsc --noEmit -p tsconfig.json   23 errors, unchanged from day 19
                                                          (all pre-existing; none in the new files)
@@ -93,10 +95,68 @@ markup genuinely changed (the button is now wrapped and can read `MAX n IN BAG`)
 weakened — `Product.test.js` and `SingleProduct.test.js` also gained the `CartStateProvider` wrapper
 that `pages/_app.js` always supplies in production, because `AddToCart` reads the cart context now.
 
-## 4. What is deliberately *not* here
+## 4. The anonymous cart (day 21)
+
+**Task:** "Anonymous cart: a localStorage cart that merges into the server cart on sign-in, with a
+merge rule you can explain out loud."
+**Acceptance check:** "Add items signed out, sign in, and nothing is lost or double-counted."
+
+### 4.1 The rule, out loud
+
+> Per product, the merged quantity is the **larger** of what the server already had and what this
+> browser was holding — never the sum. The result is still capped by the product's line limit.
+
+Summing double-counts an item the customer added on the phone *and* while signed in; the maximum
+never loses a line and never invents stock. In numbers:
+
+| Server already had | Browser was holding | Merged | Why |
+|---|---|---|---|
+| 0 | 2 | **2** | a line that exists only in the browser survives intact |
+| 1 | 1 | **1** | the "added it in both places" case — 1, not 2 |
+| 1 | 3 | **3** | the larger wins; nothing lost |
+| 4 | 2 | **4** | the browser line is already covered; no write at all |
+| 0 | 9 (stock 4) | **4** | the ceiling still applies |
+
+One implementation, three callers, no copies: `mergeQuantity` in
+`backend/lib/cartRules.ts` (the write), mirrored in `frontend/lib/cartLines.js` (what the drawer
+shows while a merge is pending). `backend/test/cart-rules.test.js` and
+`frontend/__tests__/cartRulesMirror.test.js` each read the *other* file and fail if the two drift.
+
+### 4.2 How it is wired
+
+| Piece | Job |
+|---|---|
+| `frontend/lib/anonCart.js` | one localStorage key (`trendyfits.cart.v1`), sanitised on every read and write; `mergeLines()` decides what is worth sending |
+| `frontend/lib/cartState.js` | owns the browser cart in one place, so the drawer, the badge, the add buttons and the merge all read the same array |
+| `frontend/components/AddToCart.js` | a signed-out click now *keeps* the bag instead of redirecting to `/signin` |
+| `frontend/components/MergeAnonymousCart.js` | watches the signed-in user; sends the merged lines; **clears localStorage only after the server confirms** |
+| `frontend/components/Cart.js` | signed out, the drawer shows the browser cart with the same steppers, and "Sign in to check out" instead of a Stripe form |
+| `frontend/components/Nav.js` | the bag badge counts the cart the customer is actually carrying (server when signed in, browser when signed out, larger-quantity union while a merge is in flight) |
+| `backend/mutations/mergeCart.ts` | `mergeCart(items: [CartLineInput!]!)` — re-reads the product first, scopes every read and write to the session user, drops lines whose product is no longer purchasable, deletes nothing |
+
+### 4.3 What it refuses to do
+
+- **Never deletes.** A merge that deletes can lose a line; the server line is only ever moved up.
+- **Never trusts localStorage.** The payload is sanitised (no product id or no quantity → dropped,
+  duplicates folded by the same max rule, capped at 50 lines) so a hand-edited key cannot inflate a
+  cart or bloat a render.
+- **Never merges an unpurchasable product.** The product is read through
+  `rules.canReadProducts`, so a Draft/Unavailable/deleted product is not found and its browser line
+  is dropped rather than resurrected.
+- **Never loses the browser copy on failure.** If the mutation fails, localStorage is kept and a
+  retry banner appears; the merge also runs once per sign-in, because `useUser` polls every 5s and a
+  merge that re-ran on every poll would be a write loop.
+
+### 4.4 One test-harness note
+
+`MergeAnonymousCart` runs from a query resolution rather than a click, and React 18 + RTL only flush
+non-event updates when `act()` runs. The tests therefore flush with `await act(...)` before asserting
+(the response itself is delivered either way — verified by instrumenting the mock link: the request
+matches and the observable emits). Production has no `act`.
+
+## 5. What is deliberately *not* here
 
 - No inventory reservation, no stock decrement: that is day 25's task ("atomic stock decrement on the
   paid webhook, inside a transaction").
 - No `updateCartItem` UI on the checkout screen: that is day 22's Stripe audit.
-- The cart is still signed-in-only. Making it work before sign-in, and merging it afterwards, is
-  day 21.
+- No cross-device cart: the browser cart is per device and is merged once, on sign-in.

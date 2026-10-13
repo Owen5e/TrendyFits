@@ -1,6 +1,5 @@
 import { useMutation } from '@apollo/client';
 import gql from 'graphql-tag';
-import { useRouter } from 'next/router';
 import { useState } from 'react';
 import { lineLimit } from '../lib/cartLines';
 import { useCart } from '../lib/cartState';
@@ -28,10 +27,28 @@ export const ADD_TO_CART_MUTATION = gql`
   }
 `;
 
-export default function AddToCart({ id }) {
-  const router = useRouter();
+/** The fields the drawer needs to render a line without asking the server. */
+export function localLineFrom(product, id, quantity = 1) {
+  return {
+    id: String(id),
+    quantity,
+    product: product
+      ? {
+          id: product.id ?? String(id),
+          name: product.name ?? null,
+          price: product.price ?? null,
+          stock: product.stock ?? null,
+          photo: product.photo
+            ? { image: { publicUrlTransformed: product.photo.image?.publicUrlTransformed } }
+            : null
+        }
+      : null
+  };
+}
+
+export default function AddToCart({ id, product = null }) {
   const user = useUser();
-  const { openCart } = useCart();
+  const { openCart, addLocalItem } = useCart();
   const [message, setMessage] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
 
@@ -41,7 +58,7 @@ export default function AddToCart({ id }) {
   // line yet there is no product to read a stock figure from — and the server
   // refuses anything past the limit regardless of what this screen says.
   const existingLine = user?.cart?.find(line => line.product?.id === id) || null;
-  const limit = lineLimit(existingLine?.product);
+  const limit = lineLimit(existingLine?.product ?? product);
   const atLimit = !!existingLine && existingLine.quantity >= limit;
 
   const [addToCart, { loading, error }] = useMutation(ADD_TO_CART_MUTATION, {
@@ -65,12 +82,20 @@ export default function AddToCart({ id }) {
       return;
     }
 
-    // Check if user is logged in
+    // Day 21: a signed-out visitor keeps a cart instead of being sent to the sign-in
+    // page. It is the same rule as the server's — the line is capped by the product's
+    // stock, and the merge on sign-in takes the larger of the two quantities, so what
+    // is added here is never lost and never counted twice.
     if (!user) {
-      router.push({
-        pathname: '/signin',
-        query: { from: router.asPath }
-      });
+      const before = localLineFrom(product, id, 1);
+      const next = addLocalItem(before);
+      const added = next?.find(line => line.id === String(id));
+      setMessage(
+        added && added.quantity < 1
+          ? 'That item is not available.'
+          : `In your bag — sign in to check out${added ? ` (${added.quantity})` : ''}`
+      );
+      openCart();
       return;
     }
 

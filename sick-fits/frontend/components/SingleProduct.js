@@ -57,7 +57,7 @@ export default function SingleProduct({ id }) {
         <h2>{Product.name}</h2>
         <p>{Product.description}</p>
         <p>${Product.price}</p>
-        <AddToCart id={Product.id} />
+        <AddToCart id={Product.id} product={Product} />
         <button type="button" onClick={() => router.back()}>
           Back
         </button>

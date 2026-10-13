@@ -49,10 +49,14 @@ describe('<Nav/>', () => {
     expect(screen.getByLabelText('Sign In')).toHaveAttribute('href', '/signin');
     expect(screen.getAllByText('SHOP ALL')[0]).toHaveAttribute('href', '/products');
 
-    // no account-only links and no bag when signed out
+    // no account-only links when signed out...
     expect(screen.queryByText('Orders')).not.toBeInTheDocument();
     expect(screen.queryByText('Sell')).not.toBeInTheDocument();
-    expect(screen.queryByText('Bag')).not.toBeInTheDocument();
+
+    // ...but the bag IS reachable, because a signed-out visitor now has a cart of
+    // their own (day 21) — it just lives in the browser until they sign in.
+    expect(screen.getAllByText(/Bag/).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText('Open bag').length).toBeGreaterThan(0);
 
     expect(snapshotHTML(container)).toMatchSnapshot();
   });
