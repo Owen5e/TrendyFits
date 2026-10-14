@@ -93,11 +93,12 @@ jobs:
           STRIPE_SECRET: sk_test_ci_placeholder
           FRONTEND_URL: http://localhost:7777
 
-      # NON-BLOCKING ON PURPOSE. `tsc --noEmit` currently reports pre-existing
-      # type errors in lib/mail.ts, lib/stripe.ts, mutations/checkout.ts,
-      # schemas/ProductImage.ts and seed-data/index.ts (see log/2026-09-29.md).
-      # The step is kept visible so the debt cannot be forgotten, but it must
-      # not paint the repo red while it is still someone's future task.
+      # NON-BLOCKING ON PURPOSE. `tsc --noEmit` currently reports 16 pre-existing
+      # type errors in lib/mail.ts, lib/stripe.ts, access.ts, schemas/ProductImage.ts,
+      # keystone.ts and seed-data/index.ts. (It was 23 before day 22 typed the
+      # checkout path properly — see docs/CHECKOUT-AUDIT.md.) The step is kept
+      # visible so the remaining debt cannot be forgotten, but it must not paint
+      # the repo red while it is still someone's future task.
       - name: Typecheck (known pre-existing errors — not yet a gate)
         continue-on-error: true
         run: npx tsc --noEmit

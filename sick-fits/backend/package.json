@@ -14,6 +14,7 @@
     "test:access": "node test/access-rules.test.js",
     "test:cart": "node test/cart-rules.test.js",
     "test:merge": "node test/cart-merge.test.js",
+    "test:checkout": "node test/checkout-failure-paths.test.js",
     "postinstall": "patch-package"
   },
   "babel": {

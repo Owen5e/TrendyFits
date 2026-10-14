@@ -8,7 +8,9 @@ Every claim below carries a repro step and the observed output.
 two-package monorepo" (2026-10-06)
 **Updated:** 2026-10-09 (Day 17) — BUG-1 is now split into a fixed half (BUG-1a: the admin UI did
 not build on Windows) and an open one (BUG-1b: the dev server can exit code 1 with no message).
-See §3.
+2026-10-14 (Day 22) — GAP-8's counts are corrected (the checkout path now typechecks: 16 errors in
+6 files, down from 23 in 7) and GAP-11 records the checkout audit, its three closed findings and the
+four still open. See §3.
 
 ---
 
@@ -414,22 +416,25 @@ Also still carrying the upstream attribution, as the README's *Known gaps* alrea
 "repository": "https://github.com/wesbos/advanced-react"
 ```
 
-### GAP-8 — the backend typecheck fails in 7 files, and the README lists 5
+### GAP-8 — the backend typecheck fails in 6 files, and the README lists 5
 
 ```bash
 cd sick-fits/backend && npx tsc --noEmit; echo "exit=$?"
-# exit=2   (23 error lines)
+# exit=2   (16 error lines)   — re-measured 2026-10-14, Day 22
 ```
 
 | File | Errors |
 | --- | --- |
-| `mutations/checkout.ts` | 7 |
 | `seed-data/index.ts` | 5 |
 | `lib/mail.ts` | 4 |
 | **`access.ts`** | **4** |
 | `schemas/ProductImage.ts` | 1 |
 | `lib/stripe.ts` | 1 |
 | **`keystone.ts`** | **1** |
+
+**Correction, Day 22:** this section used to begin "fails in 7 files (23 error lines)" with
+`mutations/checkout.ts` heading the table at 7. The checkout path is now typed properly and that file
+reports **0**, so the totals are 16 lines in 6 files. Nothing else moved.
 
 The README's *Known gaps* names `lib/mail.ts`, `lib/stripe.ts`, `mutations/checkout.ts`,
 `schemas/ProductImage.ts` and `seed-data/index.ts`. **`access.ts` and `keystone.ts` are missing from
@@ -480,6 +485,27 @@ recording is that the denial is only visible by calling the API — the server l
 `"msg":"Access Denied"` and the frontend has no path that surfaces it. Note also that Keystone 5
 takes `first:` — an API consumer who tries `allProducts(take: 3)` gets
 `ValidationError: Unknown argument "take" on field "Query.allProducts"`.
+
+### GAP-11 — the checkout had four money-shaped holes; three are closed (2026-10-14, Day 22)
+
+Day 22 audited `mutations/checkout.ts`, `lib/stripe.ts` and `components/Checkout.js` against the
+**live Stripe test key**, exercising each failure path rather than reading it. Closed:
+
+- a 3-D Secure card produced a **free order** — the charge call resolves with
+  `status: 'requires_action'` and no error, and "the call returned" was being read as "the customer
+  paid";
+- a **double-click charged twice** — `loading` was set and never used, and nothing stopped the second
+  request server-side;
+- Stripe's **developer messages reached the customer**, including a masked API key for a
+  misconfiguration;
+- a failed payment **left the loading bar running** — `nProgress.done()` was only reachable on the
+  success path.
+
+Still open, with the fix each one wants: the charge and the order are **not transactionally linked**
+(F5 — a paid customer with no order is now legible, but not repaired); an **unknown-outcome retry can
+only be refused, not resolved** (F6); a cart line whose **product was deleted is dropped silently**
+(F7); and **none of the backend test suites run in CI** (F8 — 80+ checks that only run by hand).
+Full evidence, probes and fix shapes: `docs/CHECKOUT-AUDIT.md`.
 
 ### Unknown-1 — is the local API reachable *from the browser*?
 

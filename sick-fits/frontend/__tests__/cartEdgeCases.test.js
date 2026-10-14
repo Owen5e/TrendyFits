@@ -18,9 +18,11 @@ import { CURRENT_USER_QUERY } from '../components/User';
 import { CartStateProvider } from '../lib/cartState';
 import formatMoney from '../lib/formatMoney';
 
-// Cart renders <Checkout/>, which builds a Stripe Elements tree and needs a real
-// publishable key. The checkout flow is day 22's task; here it is a stub so the
-// cart itself is what is under test.
+// Cart renders <Checkout/>, which builds a Stripe Elements tree and needs Stripe.js
+// in the browser. The checkout flow has its own suites now — the failures and what
+// the customer reads are day 22's task, covered by __tests__/Checkout.test.js and
+// __tests__/checkoutMessagesMirror.test.js — so it stays a stub here and the cart
+// is what this file is about.
 jest.mock('../components/Checkout', () => ({
   Checkout: () => <div data-testid="checkout-stub" />
 }));

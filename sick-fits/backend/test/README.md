@@ -77,3 +77,37 @@ quantity wins, never the sum" -- the day-21 acceptance check is that adding item
 signed out and then signing in loses nothing and double-counts nothing.
 
 **Result on 2026-10-13 (Windows, Node 26.2.0):** `13/13 checks passed`.
+
+## `npm run test:checkout`
+
+`checkout-failure-paths.test.js` — day 22: what a customer is told when a
+payment does not go through, and what the resolver is allowed to write.
+
+**This is the one suite in this package that needs a network.** The other four
+are offline on purpose. This one is not, because the thing under test is the
+*translation* of what Stripe actually returns, and Stripe's real answers are the
+input: the card failures are produced by real requests to the test-mode API
+(`pm_card_visa`, `pm_card_visa_chargeDeclined`, `pm_card_threeDSecure2Required`,
+an amount below the minimum), the connection failure is a **real refused socket**
+raised by the real SDK, and the wrong-key failure uses a deliberately bad key.
+Only the database is faked — a small in-memory Order store, so a retry can find
+what the first attempt wrote.
+
+It reads `STRIPE_SECRET` from `backend/.env` (or the environment). Without a key
+it prints a loud skip notice and **fails**, so a green run can never mean "the
+live half did not happen".
+
+Two things it pins that are worth knowing before touching the checkout:
+
+- a 3-D Secure card resolves with `status: 'requires_action'` and **no error**, so
+  "the call returned" is not "the customer paid";
+- two submits with different payment methods and one idempotency key are refused
+  by Stripe (`409 idempotency_key_in_use`, or `StripeIdempotencyError` on a
+  replay), which is what stops a double-click from charging twice.
+
+**Result on 2026-10-14 (Windows, Node 16.20.2, live test key):** `24/24 checks passed`.
+
+The browser side of the same vocabulary is `frontend/lib/checkoutMessages.js`,
+checked word-for-word against `lib/checkoutErrors.ts` by
+`frontend/__tests__/checkoutMessagesMirror.test.js`. The findings themselves are
+written up in `../../docs/CHECKOUT-AUDIT.md`.
