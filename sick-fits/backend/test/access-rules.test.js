@@ -169,6 +169,9 @@ check('canOrder -> own cart items only', () => {
 check('canManageOrderItems -> items of own orders only', () => {
   assert.deepStrictEqual(rules.canManageOrderItems(NO_RIGHTS), { order: { user: { id: OWNER } } });
 });
+check('canReadOrders -> own orders only, for a customer (day 26)', () => {
+  assert.deepStrictEqual(rules.canReadOrders(NO_RIGHTS), { user: { id: OWNER } });
+});
 check('canManageUsers -> self only', () => {
   assert.deepStrictEqual(rules.canManageUsers(NO_RIGHTS), { id: OWNER });
 });
@@ -221,7 +224,7 @@ check('F6 closed: a session without `data` denies instead of throwing', () => {
     assert.strictEqual(permissions[p](partial), false, `${p} allowed or threw on a partial session`);
   });
   ['canManageProducts', 'canOrder', 'canManageOrderItems', 'canManageUsers', 'canManageCategories',
-   'canReadProducts', 'canReadProductImages', 'canManageProductImages']
+   'canReadProducts', 'canReadOrders', 'canReadProductImages', 'canManageProductImages']
     .forEach((r) => assert.doesNotThrow(() => rules[r](partial), `rules.${r} threw on a partial session`));
 });
 
@@ -253,6 +256,22 @@ check('F3 closed: Category uses a rule it can actually satisfy', () => {
   // the borrowed rule filtered on a column Category does not have; this one only answers
   assert.strictEqual(rules.canManageCategories(NO_RIGHTS), false);
   assert.strictEqual(rules.canManageCategories(CATEGORY_RIGHTS), true);
+});
+
+check('day 26: the order permission also lets staff SEE orders — and only orders', () => {
+  // The status flow is unusable if a staff member cannot list the orders they may
+  // move. `canReadOrders` grants that, while `canOrder` (which also guards
+  // CartItem) deliberately does not widen: every basket in the shop stays private.
+  assert.strictEqual(rules.canReadOrders(ORDER_RIGHTS), true);
+  assert.strictEqual(rules.canReadOrders(CART_RIGHTS), true);
+  assert.strictEqual(rules.canReadOrders(ANON), false);
+  assert.deepStrictEqual(rules.canReadOrders(NO_RIGHTS), { user: { id: OWNER } });
+  assert.match(read('Order.ts'), /read:\s*rules\.canReadOrders/,
+    'Order.read no longer uses the order-specific rule');
+  assert.deepStrictEqual(rules.canOrder(ORDER_RIGHTS), { user: { id: OWNER } },
+    'canOrder was widened — an order manager can now read every customer basket');
+  assert.strictEqual(rules.canManageOrderItems(ORDER_RIGHTS), true,
+    'a staff member who may move an order cannot read its line items');
 });
 
 check('F5 closed: order corrections are gated on canManageOrders; nothing is deleted', () => {

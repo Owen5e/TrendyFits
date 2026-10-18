@@ -57,12 +57,37 @@ export const rules = {
     // 2. Otherwise, they can only manage their own cart items
     return { user: { id: session.itemId } };
   },
+  // Day 26: `canOrder` also guards CartItem, so widening it would hand every cart
+  // row in the shop to whoever may correct orders. Orders get their own rule:
+  // the permission that lets a staff member move an order must also let them SEE
+  // it, otherwise the status flow is a screen that only ever lists their own
+  // purchases. `canManageCart` keeps its existing access.
+  canReadOrders({ session }: ListAccessArgs) {
+    // `!session` narrows the type so `session.itemId` below is a string — without
+    // it this rule adds a tsc error, the same way canManageProductImages did.
+    if (!isSignedIn({ session }) || !session) {
+      return false;
+    }
+    if (
+      permissions.canManageOrders({ session }) ||
+      permissions.canManageCart({ session })
+    ) {
+      return true;
+    }
+    return { user: { id: session.itemId } };
+  },
   canManageOrderItems({ session }: ListAccessArgs) {
     if (!isSignedIn({ session })) {
       return false;
     }
     // 1. Do they have permission to manage products
-    if (permissions.canManageCart({ session })) {
+    // Day 26: `canManageOrders` was missing here, so a staff member who could
+    // move an order's status could not read that order's line items — the admin
+    // item view showed an empty order.
+    if (
+      permissions.canManageCart({ session }) ||
+      permissions.canManageOrders({ session })
+    ) {
       return true;
     }
     // 2. if not, do they own this product?

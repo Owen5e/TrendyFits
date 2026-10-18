@@ -507,6 +507,30 @@ only be refused, not resolved** (F6); a cart line whose **product was deleted is
 (F7); and **none of the backend test suites run in CI** (F8 — 80+ checks that only run by hand).
 Full evidence, probes and fix shapes: `docs/CHECKOUT-AUDIT.md`.
 
+### GAP-12 — the order status flow now exists; two holes around it are open (2026-10-18, Day 26)
+
+Day 26 added a lifecycle to `Order` (`CREATED → PAID → FULFILLED → DELIVERED`, plus `CANCELLED`),
+enforced in `lib/orderStatus.ts` and `Order.hooks.resolveInput`, and gave customers a real order
+history at `/order` (`docs/ORDER-STATUS.md`). Three things found while doing it:
+
+- **Fixed — staff could not read the orders they were allowed to correct.** `Order.read` used
+  `rules.canOrder`, which grants unrestricted access only to `canManageCart`, so a
+  `canManageOrders` holder saw only their own purchases. New `rules.canReadOrders` (permission OR
+  ownership) fixes it without widening `canOrder`, which also guards `CartItem` — widening that
+  would have exposed every customer's basket.
+- **Open — the admin UI is open to any signed-in session.** `keystone.ts` gates it on
+  `!!session?.data`, which every customer has. List access still scopes their rows, but the shell is
+  reachable. Tightening it needs a verified look at the live `Role` data; guessed, it locks the owner
+  out of his own admin.
+- **Open — `Order.create` is `isSignedIn`.** The generated `createOrder` mutation accepts an order
+  with an arbitrary `total`/`charge` from any signed-in customer. The status field is protected; the
+  order write is not.
+- **Version limit, not a bug we can fix here:** `@keystone-next/keystone` 9.3.1 drops
+  `ui.labelField`, `ui.listView`, `ui.createView` and field `ui.displayMode` — its types accept them
+  (types 12 is newer than the runtime) and `initConfig` never passes them on. The status is therefore
+  edited as a text value in the admin item view and the flow is enforced server-side. `npm run
+  check:schema` prints the admin meta so this stays visible.
+
 ### Unknown-1 — is the local API reachable *from the browser*?
 
 Once, in a browser on `http://localhost:7777/products`, a `fetch` to

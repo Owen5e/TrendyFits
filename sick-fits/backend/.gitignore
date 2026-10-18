@@ -99,3 +99,6 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Day 26: the emitted JS used by `npm run check:schema`
+.tmp-check/
